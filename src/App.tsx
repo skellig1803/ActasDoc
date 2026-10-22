@@ -11,6 +11,14 @@ import {
   createBlankActa,
 } from './utils/storage';
 import {
+  checkIsAuthenticated,
+  logoutSession,
+  fetchCentralData,
+  saveActaToCentral,
+  deleteActaFromCentral,
+  saveRosterToCentral,
+} from './utils/api';
+import {
   generatePdfFromElement,
   formatActaForSharing,
   triggerBrowserPrint,
@@ -21,25 +29,65 @@ import { ActaPrintView } from './components/ActaPrintView';
 import { SignaturePadModal } from './components/SignaturePadModal';
 import { RosterModal } from './components/RosterModal';
 import { ActaHistoryModal } from './components/ActaHistoryModal';
+import { SyncDriveModal } from './components/SyncDriveModal';
+import { PasswordGate } from './components/PasswordGate';
 import { MeetingTimer } from './components/MeetingTimer';
-import { CheckCircle2, FileText, Calendar, Clock, MapPin, AlertCircle, Plus, X } from 'lucide-react';
+import { CheckCircle2, FileText, Calendar, Clock, MapPin, Plus, X, Cloud } from 'lucide-react';
 
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => checkIsAuthenticated());
+
   const [acta, setActa] = useState<ActaData>(() => getCurrentDraft());
   const [roster, setRoster] = useState<Maestro[]>(() => getRoster());
   const [savedActas, setSavedActas] = useState<ActaData[]>(() => getSavedActas());
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
+  const [isServerSynced, setIsServerSynced] = useState<boolean>(false);
 
   // Modals state
   const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [signatureRole, setSignatureRole] = useState<'facilitador' | 'secretario'>('facilitador');
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRosterOpen, setIsRosterOpen] = useState(false);
+  const [isSyncDriveOpen, setIsSyncDriveOpen] = useState(false);
   const [isNewActaModalOpen, setIsNewActaModalOpen] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Auto-save draft on changes
+  // Sync with central server on login / load
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    let isMounted = true;
+    const syncData = async () => {
+      try {
+        const central = await fetchCentralData();
+        if (isMounted) {
+          if (central.isServerSynced) {
+            setIsServerSynced(true);
+            if (central.actas.length > 0) {
+              setSavedActas(central.actas);
+            }
+            if (central.roster.length > 0) {
+              setRoster(central.roster);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Initial server sync:', e);
+      }
+    };
+
+    syncData();
+
+    // Periodic sync every 45 seconds to fetch changes from other computers
+    const interval = setInterval(syncData, 45000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [isAuthenticated]);
+
+  // Auto-save draft on changes locally
   useEffect(() => {
     saveCurrentDraft(acta);
   }, [acta]);
@@ -55,21 +103,31 @@ export default function App() {
     setActa(updated);
   };
 
-  const handleSaveActa = () => {
+  const handleSaveActa = async () => {
+    // Save to local storage first
     saveSingleActa(acta);
     setSavedActas(getSavedActas());
-    showToast(`Acta N° ${acta.actaNumero || 'S/N'} guardada exitosamente en el historial.`);
+
+    // Sync to central server so other computers see it immediately
+    const synced = await saveActaToCentral(acta);
+    if (synced) {
+      setIsServerSynced(true);
+      showToast(`Acta N° ${acta.actaNumero || 'S/N'} guardada y sincronizada en todos los equipos.`);
+    } else {
+      showToast(`Acta N° ${acta.actaNumero || 'S/N'} guardada localmente.`);
+    }
   };
 
-  // Safe in-app modal flow for New Acta (no window.confirm)
+  // Safe in-app modal flow for New Acta
   const handleOpenNewActaModal = () => {
     setIsNewActaModalOpen(true);
   };
 
-  const handleConfirmNewActa = (saveCurrentFirst: boolean) => {
+  const handleConfirmNewActa = async (saveCurrentFirst: boolean) => {
     if (saveCurrentFirst) {
       saveSingleActa(acta);
       setSavedActas(getSavedActas());
+      await saveActaToCentral(acta);
     }
 
     // Calculate next suggested number
@@ -78,8 +136,8 @@ export default function App() {
     const newActa = createBlankActa(nextNum);
     
     // Carry forward current Facilitator & Secretary preferences
-    newActa.facilitador = acta.facilitador || 'Prof. Carlos Mendoza';
-    newActa.secretario = acta.secretario || 'Prof. Ana Beltrán';
+    newActa.facilitador = acta.facilitador || 'Maritza Adriana';
+    newActa.secretario = acta.secretario || 'José Luis';
     newActa.lugar = acta.lugar || 'Campus CENEDIS LunaSol - Sala de la Facultad de Maestros';
     newActa.firmas.facilitadorNombre = newActa.facilitador;
     newActa.firmas.secretarioNombre = newActa.secretario;
@@ -95,10 +153,11 @@ export default function App() {
     showToast(`Acta N° ${selected.actaNumero} cargada en pantalla.`);
   };
 
-  const handleDeleteHistoryActa = (id: string) => {
+  const handleDeleteHistoryActa = async (id: string) => {
     const updated = deleteActa(id);
     setSavedActas(updated);
-    showToast('Acta eliminada del historial.');
+    await deleteActaFromCentral(id);
+    showToast('Acta eliminada del archivo central.');
   };
 
   const handleDuplicateActa = (source: ActaData) => {
@@ -147,10 +206,11 @@ export default function App() {
     showToast(`Se ha creado una nueva acta N° ${nextNum} basada en la N° ${source.actaNumero}.`);
   };
 
-  const handleSaveRoster = (newRoster: Maestro[]) => {
+  const handleSaveRoster = async (newRoster: Maestro[]) => {
     saveRoster(newRoster);
     setRoster(newRoster);
-    showToast('Nómina de docentes de la Facultad actualizada.');
+    await saveRosterToCentral(newRoster);
+    showToast('Nómina de docentes actualizada y sincronizada.');
   };
 
   const handleOpenSignature = (type: 'facilitador' | 'secretario') => {
@@ -214,6 +274,37 @@ export default function App() {
     }
   };
 
+  const handleLockSession = () => {
+    logoutSession();
+    setIsAuthenticated(false);
+    showToast('Sesión bloqueada correctamente.');
+  };
+
+  const handleImportDriveSuccess = (imported: { actas: ActaData[]; roster: Maestro[] }) => {
+    setSavedActas(imported.actas);
+    setRoster(imported.roster);
+    if (imported.actas.length > 0) {
+      setActa(imported.actas[0]);
+    }
+    showToast('Base de datos sincronizada desde archivo de Drive.');
+  };
+
+  const handleRestoreSuccess = (restored: { actas: ActaData[]; roster: Maestro[]; currentDraft?: ActaData }) => {
+    setSavedActas(restored.actas);
+    setRoster(restored.roster);
+    if (restored.currentDraft) {
+      setActa(restored.currentDraft);
+    } else if (restored.actas.length > 0) {
+      setActa(restored.actas[0]);
+    }
+    showToast('Base de datos restaurada con éxito al punto anterior.');
+  };
+
+  // If user is not yet logged in with password "LunaSol2026", show PasswordGate
+  if (!isAuthenticated) {
+    return <PasswordGate onSuccess={() => setIsAuthenticated(true)} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       {/* Top Bar Header with CENEDIS LunaSol identity */}
@@ -225,6 +316,8 @@ export default function App() {
         onNewActa={handleOpenNewActaModal}
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenRoster={() => setIsRosterOpen(true)}
+        onOpenSyncDrive={() => setIsSyncDriveOpen(true)}
+        onLockSession={handleLockSession}
         onQuickPrint={handleQuickPrint}
       />
 
@@ -255,6 +348,15 @@ export default function App() {
                 </span>
               </>
             )}
+            <span className="text-slate-300 hidden lg:inline">|</span>
+            <button
+              type="button"
+              onClick={() => setIsSyncDriveOpen(true)}
+              className="hidden lg:flex items-center gap-1 text-[11px] text-emerald-800 hover:text-emerald-950 bg-emerald-50/80 px-2 py-0.5 rounded border border-emerald-200/80 cursor-pointer"
+            >
+              <Cloud className="h-3 w-3 text-emerald-600" />
+              <span>Sincronizado multi-equipo</span>
+            </button>
           </div>
 
           <div className="flex items-center gap-3 shrink-0">
@@ -292,7 +394,7 @@ export default function App() {
         )}
       </main>
 
-      {/* In-App Confirmation Modal for "Nueva Acta" (Replaces blocked window.confirm) */}
+      {/* In-App Confirmation Modal for "Nueva Acta" */}
       {isNewActaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl">
@@ -322,7 +424,7 @@ export default function App() {
                 Acta actual en pantalla: <strong>N° {acta.actaNumero || 'S/N'}</strong> ({acta.fecha || 'Sin fecha'}).
               </p>
               <p>
-                ¿Desea guardar el acta actual en el historial antes de iniciar la nueva?
+                ¿Desea guardar el acta actual en el archivo central antes de iniciar la nueva?
               </p>
             </div>
 
@@ -395,15 +497,33 @@ export default function App() {
         onDuplicateActa={handleDuplicateActa}
       />
 
+      <SyncDriveModal
+        isOpen={isSyncDriveOpen}
+        onClose={() => setIsSyncDriveOpen(false)}
+        actas={savedActas}
+        roster={roster}
+        isServerSynced={isServerSynced}
+        onImportSuccess={handleImportDriveSuccess}
+        onRestoreSuccess={handleRestoreSuccess}
+      />
+
       {/* Screen Footer (hidden in print) */}
       <footer className="no-print border-t border-slate-200 bg-white py-4 mt-12 text-center text-xs text-slate-500">
         <div className="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span className="font-medium text-emerald-950">
             CENEDIS LunaSol · Educación para el ser, salud para el futuro
           </span>
-          <span className="text-[11px] text-slate-400">
-            Sistema de Actas de Facultad de Maestros y Representantes
-          </span>
+          <div className="flex items-center gap-3 text-[11px] text-slate-400">
+            <span>Acceso Seguro con Contraseña</span>
+            <span>·</span>
+            <button
+              type="button"
+              onClick={handleLockSession}
+              className="text-emerald-800 hover:underline"
+            >
+              Bloquear sesión
+            </button>
+          </div>
         </div>
       </footer>
     </div>

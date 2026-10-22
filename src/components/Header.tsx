@@ -1,5 +1,5 @@
 import React from 'react';
-import { Printer, Save, PlusCircle, History, Users, Eye, Edit3 } from 'lucide-react';
+import { Printer, Save, PlusCircle, History, Users, Eye, Edit3, Cloud, Lock } from 'lucide-react';
 import { CenedisLogo } from './CenedisLogo';
 
 export type ActiveTab = 'editor' | 'preview';
@@ -12,6 +12,8 @@ interface HeaderProps {
   onNewActa: () => void;
   onOpenHistory: () => void;
   onOpenRoster: () => void;
+  onOpenSyncDrive: () => void;
+  onLockSession: () => void;
   onQuickPrint: () => void;
 }
 
@@ -23,11 +25,13 @@ export const Header: React.FC<HeaderProps> = ({
   onNewActa,
   onOpenHistory,
   onOpenRoster,
+  onOpenSyncDrive,
+  onLockSession,
   onQuickPrint,
 }) => {
   return (
     <header className="no-print bg-white border-b border-emerald-950/10 sticky top-0 z-40 shadow-2xs">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-8">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-6">
         {/* Zone 1: Brand title, single line with CENEDIS LunaSol identity */}
         <div className="flex items-center gap-3 shrink-0">
           <button
@@ -48,7 +52,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Zone 2: 4 concise single-line nav tabs */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600">
+        <nav className="hidden lg:flex items-center gap-5 text-sm font-medium text-slate-600">
           <button
             type="button"
             onClick={() => onTabChange('editor')}
@@ -81,7 +85,7 @@ export const Header: React.FC<HeaderProps> = ({
             className="whitespace-nowrap shrink-0 hover:text-emerald-900 transition-colors py-1 cursor-pointer flex items-center gap-1.5"
           >
             <History className="h-3.5 w-3.5 text-slate-400" />
-            Historial de Actas
+            Historial ({actaNumero ? `N° ${actaNumero}` : 'Actas'})
           </button>
 
           <button
@@ -90,7 +94,17 @@ export const Header: React.FC<HeaderProps> = ({
             className="whitespace-nowrap shrink-0 hover:text-emerald-900 transition-colors py-1 cursor-pointer flex items-center gap-1.5"
           >
             <Users className="h-3.5 w-3.5 text-slate-400" />
-            Plantel Docente
+            Nómina Docente
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenSyncDrive}
+            className="whitespace-nowrap shrink-0 hover:text-emerald-900 transition-colors py-1 cursor-pointer flex items-center gap-1.5 text-emerald-800 font-medium"
+            title="Sincronizar con Google Drive o compartir archivo entre computadores"
+          >
+            <Cloud className="h-3.5 w-3.5 text-emerald-600" />
+            Google Drive
           </button>
         </nav>
 
@@ -99,7 +113,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onNewActa}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg transition-colors cursor-pointer"
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 rounded-lg transition-colors cursor-pointer"
             title="Crear una nueva acta de reunión"
           >
             <PlusCircle className="h-3.5 w-3.5 text-emerald-700" />
@@ -109,11 +123,11 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={onSaveActa}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
-            title="Guardar en el archivo de actas"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
+            title="Guardar en el servidor central y archivo"
           >
             <Save className="h-3.5 w-3.5 text-slate-500" />
-            <span>Guardar</span>
+            <span className="hidden sm:inline">Guardar</span>
           </button>
 
           <button
@@ -124,11 +138,21 @@ export const Header: React.FC<HeaderProps> = ({
             <Printer className="h-3.5 w-3.5" />
             <span>Imprimir / PDF</span>
           </button>
+
+          {/* Session Lock button */}
+          <button
+            type="button"
+            onClick={onLockSession}
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            title="Bloquear sesión / Cerrar acceso"
+          >
+            <Lock className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
       {/* Mobile nav row */}
-      <div className="md:hidden flex items-center justify-around border-t border-slate-100 px-3 py-1.5 text-xs bg-slate-50">
+      <div className="lg:hidden flex items-center justify-around border-t border-slate-100 px-3 py-1.5 text-xs bg-slate-50">
         <button
           type="button"
           onClick={() => onTabChange('editor')}
@@ -159,7 +183,14 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenRoster}
           className="px-2 py-1 text-slate-600 hover:text-slate-900"
         >
-          Plantel
+          Nómina
+        </button>
+        <button
+          type="button"
+          onClick={onOpenSyncDrive}
+          className="px-2 py-1 text-emerald-800 font-semibold"
+        >
+          Drive
         </button>
       </div>
     </header>
